@@ -31,7 +31,6 @@ jobs:
           yesterday = (today - timedelta(days=1)).strftime('%Y-%m-%d')
           day_before = (today - timedelta(days=2)).strftime('%Y-%m-%d')
           week_start = (today - timedelta(days=7)).strftime('%Y-%m-%d')
-          month_start = today.replace(day=1).strftime('%Y-%m-%d')
           last_month_start = (today.replace(day=1) - timedelta(days=1)).replace(day=1).strftime('%Y-%m-%d')
           last_month_end = (today.replace(day=1) - timedelta(days=1)).strftime('%Y-%m-%d')
           is_first_day = today.day == 1
@@ -49,9 +48,7 @@ jobs:
               }
               r = requests.get(url, params=params)
               data = r.json()
-              if 'data' in data:
-                  return data['data']
-              return []
+              return data.get('data', [])
 
           def get_val(d, key):
               try:
@@ -83,237 +80,231 @@ jobs:
               arrow = '▲' if change > 0 else '▼'
               return f" ({arrow}{abs(change):.1f}%)"
 
-          def fmt_krw(v):
+          def fmt(v):
               return f"₩{v:,.0f}"
 
           def summarize(data_list):
               if not data_list:
                   return None
-              total = {}
+              t = {'spend':0,'impressions':0,'clicks':0,'reach':0,'purchases':0,'revenue':0}
               for d in data_list:
-                  for key in ['spend', 'impressions', 'clicks', 'reach']:
-                      total[key] = total.get(key, 0) + get_val(d, key)
-                  total['purchases'] = total.get('purchases', 0) + get_purchases(d)
-                  total['revenue'] = total.get('revenue', 0) + get_revenue(d)
-              total['ctr'] = (total['clicks'] / total['impressions'] * 100) if total.get('impressions', 0) > 0 else 0
-              total['cpc'] = (total['spend'] / total['clicks']) if total.get('clicks', 0) > 0 else 0
-              total['roas'] = (total['revenue'] / total['spend']) if total.get('spend', 0) > 0 else 0
-              return total
+                  for k in ['spend','impressions','clicks','reach']:
+                      t[k] += get_val(d, k)
+                  t['purchases'] += get_purchases(d)
+                  t['revenue'] += get_revenue(d)
+              t['ctr'] = (t['clicks']/t['impressions']*100) if t['impressions'] > 0 else 0
+              t['cpc'] = (t['spend']/t['clicks']) if t['clicks'] > 0 else 0
+              t['roas'] = (t['revenue']/t['spend']) if t['spend'] > 0 else 0
+              return t
 
-          # 데이터 수집
           today_raw = get_insights(yesterday, yesterday)
           prev_raw = get_insights(day_before, day_before)
           week_raw = get_insights(week_start, yesterday)
           campaign_today = get_insights(yesterday, yesterday, level='campaign', fields='campaign_name,spend,impressions,clicks,ctr,cpc,actions,action_values')
           adset_today = get_insights(yesterday, yesterday, level='adset', fields='adset_name,campaign_name,spend,impressions,clicks,ctr,cpc,actions,action_values')
           ad_today = get_insights(yesterday, yesterday, level='ad', fields='ad_name,adset_name,spend,impressions,clicks,ctr,cpc,actions,action_values')
-          week_campaign = get_insights(week_start, yesterday, level='campaign', fields='campaign_name,spend,impressions,clicks,ctr,actions,action_values')
+          week_campaign = get_insights(week_start, yesterday, level='campaign', fields='campaign_name,spend,impressions,clicks,actions,action_values')
 
           today_s = summarize(today_raw)
           prev_s = summarize(prev_raw)
           week_s = summarize(week_raw)
 
-          lines = []
-          lines.append(f"📊 Meta 광고 통합 리포트 - {yesterday}")
-          lines.append("=" * 50)
+          sections = []
 
-          # ===== 1. 일간 성과 =====
-          lines.append("\n🗓 [일간 성과] 전일 vs 당일 비교")
-          lines.append("-" * 40)
+          # 섹션 1: 일간
+          s1 = []
+          s1.append(f"📊 Meta 광고 통합 리포트 - {yesterday}")
+          s1.append("=" * 40)
+          s1.append("🗓 [일간] 전일 vs 당일 비교")
+          s1.append("-" * 30)
           if today_s:
               p = prev_s or {}
-              lines.append(f"지출:  {fmt_krw(today_s['spend'])}{diff_str(today_s['spend'], p.get('spend', 0))}")
-              lines.append(f"매출:  {fmt_krw(today_s['revenue'])}{diff_str(today_s['revenue'], p.get('revenue', 0))}")
-              lines.append(f"ROAS:  {today_s['roas']:.2f}{diff_str(today_s['roas'], p.get('roas', 0))}")
-              lines.append(f"구매:  {today_s['purchases']:.0f}건{diff_str(today_s['purchases'], p.get('purchases', 0))}")
-              lines.append(f"노출:  {today_s['impressions']:,.0f}{diff_str(today_s['impressions'], p.get('impressions', 0))}")
-              lines.append(f"클릭:  {today_s['clicks']:,.0f}{diff_str(today_s['clicks'], p.get('clicks', 0))}")
-              lines.append(f"CTR:   {today_s['ctr']:.2f}%{diff_str(today_s['ctr'], p.get('ctr', 0))}")
-              lines.append(f"CPC:   {fmt_krw(today_s['cpc'])}{diff_str(today_s['cpc'], p.get('cpc', 0))}")
-              lines.append(f"도달:  {today_s['reach']:,.0f}")
+              s1.append(f"지출: {fmt(today_s['spend'])}{diff_str(today_s['spend'], p.get('spend',0))}")
+              s1.append(f"매출: {fmt(today_s['revenue'])}{diff_str(today_s['revenue'], p.get('revenue',0))}")
+              s1.append(f"ROAS: {today_s['roas']:.2f}{diff_str(today_s['roas'], p.get('roas',0))}")
+              s1.append(f"구매: {today_s['purchases']:.0f}건{diff_str(today_s['purchases'], p.get('purchases',0))}")
+              s1.append(f"노출: {today_s['impressions']:,.0f}{diff_str(today_s['impressions'], p.get('impressions',0))}")
+              s1.append(f"클릭: {today_s['clicks']:,.0f}{diff_str(today_s['clicks'], p.get('clicks',0))}")
+              s1.append(f"CTR: {today_s['ctr']:.2f}%{diff_str(today_s['ctr'], p.get('ctr',0))}")
+              s1.append(f"CPC: {fmt(today_s['cpc'])}{diff_str(today_s['cpc'], p.get('cpc',0))}")
+              s1.append(f"도달: {today_s['reach']:,.0f}")
           else:
-              lines.append("어제 데이터 없음")
+              s1.append("어제 데이터 없음")
+          sections.append("\n".join(s1))
 
-          # ===== 2. 캠페인별 성과 =====
-          lines.append("\n🏆 [캠페인별 성과 순위] 지출 기준")
-          lines.append("-" * 40)
+          # 섹션 2: 캠페인별
+          s2 = []
+          s2.append("🏆 [캠페인별 성과] 지출 순위")
+          s2.append("-" * 30)
           if campaign_today:
-              sorted_c = sorted(campaign_today, key=lambda x: get_val(x, 'spend'), reverse=True)
-              for i, c in enumerate(sorted_c, 1):
-                  spend = get_val(c, 'spend')
+              for i, c in enumerate(sorted(campaign_today, key=lambda x: get_val(x,'spend'), reverse=True), 1):
+                  spend = get_val(c,'spend')
                   revenue = get_revenue(c)
-                  roas = revenue / spend if spend > 0 else 0
-                  purchases = get_purchases(c)
-                  ctr = get_val(c, 'ctr')
-                  lines.append(f"\n{i}. {c.get('campaign_name', 'N/A')}")
-                  lines.append(f"   지출: {fmt_krw(spend)} | 매출: {fmt_krw(revenue)} | ROAS: {roas:.2f} | 구매: {purchases:.0f}건 | CTR: {ctr:.2f}%")
+                  roas = revenue/spend if spend > 0 else 0
+                  s2.append(f"{i}. {c.get('campaign_name','N/A')}")
+                  s2.append(f"   지출:{fmt(spend)} 매출:{fmt(revenue)} ROAS:{roas:.2f} 구매:{get_purchases(c):.0f}건 CTR:{get_val(c,'ctr'):.2f}%")
+          sections.append("\n".join(s2))
 
-          # ===== 3. 성과 낮은 광고세트 =====
-          lines.append("\n⚠️ [성과 낮은 광고 세트] ROAS 하위")
-          lines.append("-" * 40)
+          # 섹션 3: 성과 낮은 광고세트
+          s3 = []
+          s3.append("⚠️ [성과 낮은 광고세트] 개선 필요")
+          s3.append("-" * 30)
           if adset_today:
-              adsets_with_spend = [a for a in adset_today if get_val(a, 'spend') > 0]
-              adsets_sorted = sorted(adsets_with_spend, key=lambda x: calc_roas(x))
-              bottom_adsets = adsets_sorted[:3]
-              for a in bottom_adsets:
-                  spend = get_val(a, 'spend')
-                  revenue = get_revenue(a)
-                  roas = revenue / spend if spend > 0 else 0
-                  ctr = get_val(a, 'ctr')
-                  cpc = get_val(a, 'cpc')
-                  lines.append(f"\n📌 {a.get('adset_name', 'N/A')}")
-                  lines.append(f"   지출: {fmt_krw(spend)} | ROAS: {roas:.2f} | CTR: {ctr:.2f}% | CPC: {fmt_krw(cpc)}")
-                  # 개선 방안
-                  improvements = []
+              bottom = sorted([a for a in adset_today if get_val(a,'spend')>0], key=calc_roas)[:3]
+              for a in bottom:
+                  spend = get_val(a,'spend')
+                  roas = calc_roas(a)
+                  ctr = get_val(a,'ctr')
+                  cpc = get_val(a,'cpc')
+                  s3.append(f"📌 {a.get('adset_name','N/A')}")
+                  s3.append(f"   지출:{fmt(spend)} ROAS:{roas:.2f} CTR:{ctr:.2f}% CPC:{fmt(cpc)}")
                   if roas < 1:
-                      improvements.append("→ ROAS 1 미만, 즉시 예산 축소 또는 중단 검토")
+                      s3.append("   → ROAS 1 미만, 즉시 중단 또는 예산 축소 검토")
                   elif roas < 2:
-                      improvements.append("→ ROAS 낮음, 타겟 오디언스 재설정 필요")
+                      s3.append("   → ROAS 낮음, 타겟 재설정 필요")
                   if ctr < 0.5:
-                      improvements.append("→ CTR 매우 낮음, 광고 소재(이미지/카피) 교체 필요")
+                      s3.append("   → CTR 매우 낮음, 소재 전면 교체 필요")
                   elif ctr < 1:
-                      improvements.append("→ CTR 저조, 헤드라인 및 소재 A/B 테스트 권장")
+                      s3.append("   → CTR 저조, A/B 테스트 권장")
                   if cpc > 2000:
-                      improvements.append("→ CPC 과다, 입찰 전략 또는 타겟 범위 조정 필요")
-                  if not improvements:
-                      improvements.append("→ 성과 모니터링 지속")
-                  for imp in improvements:
-                      lines.append(f"   {imp}")
+                      s3.append("   → CPC 과다, 입찰 전략 조정 필요")
+          sections.append("\n".join(s3))
 
-          # ===== 4. 성과 낮은 광고 =====
-          lines.append("\n🔻 [성과 낮은 광고] ROAS 하위")
-          lines.append("-" * 40)
+          # 섹션 4: 성과 낮은 광고
+          s4 = []
+          s4.append("🔻 [성과 낮은 광고] 개선 필요")
+          s4.append("-" * 30)
           if ad_today:
-              ads_with_spend = [a for a in ad_today if get_val(a, 'spend') > 0]
-              ads_sorted = sorted(ads_with_spend, key=lambda x: calc_roas(x))
-              bottom_ads = ads_sorted[:3]
+              bottom_ads = sorted([a for a in ad_today if get_val(a,'spend')>0], key=calc_roas)[:3]
               for a in bottom_ads:
-                  spend = get_val(a, 'spend')
-                  revenue = get_revenue(a)
-                  roas = revenue / spend if spend > 0 else 0
-                  ctr = get_val(a, 'ctr')
-                  cpc = get_val(a, 'cpc')
-                  lines.append(f"\n📌 {a.get('ad_name', 'N/A')}")
-                  lines.append(f"   광고세트: {a.get('adset_name', 'N/A')}")
-                  lines.append(f"   지출: {fmt_krw(spend)} | ROAS: {roas:.2f} | CTR: {ctr:.2f}% | CPC: {fmt_krw(cpc)}")
+                  spend = get_val(a,'spend')
+                  roas = calc_roas(a)
+                  ctr = get_val(a,'ctr')
+                  cpc = get_val(a,'cpc')
+                  s4.append(f"📌 {a.get('ad_name','N/A')}")
+                  s4.append(f"   세트: {a.get('adset_name','N/A')}")
+                  s4.append(f"   지출:{fmt(spend)} ROAS:{roas:.2f} CTR:{ctr:.2f}% CPC:{fmt(cpc)}")
                   if roas < 1:
-                      lines.append("   → 즉시 OFF 또는 소재 전면 교체 권장")
+                      s4.append("   → 즉시 OFF 또는 소재 전면 교체 권장")
                   elif ctr < 0.5:
-                      lines.append("   → 소재 반응 매우 낮음, 비주얼/카피 전면 수정 필요")
+                      s4.append("   → 비주얼/카피 전면 수정 필요")
                   elif cpc > 2000:
-                      lines.append("   → CPC 비효율, 타겟 또는 입찰가 조정 필요")
+                      s4.append("   → 타겟 또는 입찰가 조정 필요")
                   else:
-                      lines.append("   → 성과 모니터링 지속")
+                      s4.append("   → 지속 모니터링")
+          sections.append("\n".join(s4))
 
-          # ===== 5. 주간 성과 =====
-          lines.append(f"\n📅 [주간 성과] 최근 7일 ({week_start} ~ {yesterday})")
-          lines.append("-" * 40)
+          # 섹션 5: 주간
+          s5 = []
+          s5.append(f"📅 [주간] 최근 7일 ({week_start}~{yesterday})")
+          s5.append("-" * 30)
           if week_s:
-              lines.append(f"총 지출:  {fmt_krw(week_s['spend'])}")
-              lines.append(f"총 매출:  {fmt_krw(week_s['revenue'])}")
-              lines.append(f"평균 ROAS: {week_s['roas']:.2f}")
-              lines.append(f"총 구매:  {week_s['purchases']:.0f}건")
-              lines.append(f"총 노출:  {week_s['impressions']:,.0f}")
-              lines.append(f"평균 CTR: {week_s['ctr']:.2f}%")
-              lines.append(f"평균 CPC: {fmt_krw(week_s['cpc'])}")
-              lines.append(f"일평균 지출: {fmt_krw(week_s['spend']/7)}")
-              lines.append(f"일평균 구매: {week_s['purchases']/7:.1f}건")
+              s5.append(f"총 지출: {fmt(week_s['spend'])}")
+              s5.append(f"총 매출: {fmt(week_s['revenue'])}")
+              s5.append(f"평균 ROAS: {week_s['roas']:.2f}")
+              s5.append(f"총 구매: {week_s['purchases']:.0f}건")
+              s5.append(f"평균 CTR: {week_s['ctr']:.2f}%")
+              s5.append(f"평균 CPC: {fmt(week_s['cpc'])}")
+              s5.append(f"일평균 지출: {fmt(week_s['spend']/7)}")
+              s5.append(f"일평균 구매: {week_s['purchases']/7:.1f}건")
+              s5.append("")
+              if week_campaign:
+                  s5.append("주간 캠페인별 성과")
+                  for c in sorted(week_campaign, key=lambda x: get_val(x,'spend'), reverse=True):
+                      spend = get_val(c,'spend')
+                      revenue = get_revenue(c)
+                      roas = revenue/spend if spend > 0 else 0
+                      s5.append(f"• {c.get('campaign_name','N/A')}: {fmt(spend)} | ROAS {roas:.2f} | 구매 {get_purchases(c):.0f}건")
+          sections.append("\n".join(s5))
 
-          lines.append("\n주간 캠페인별 성과")
-          if week_campaign:
-              sorted_wc = sorted(week_campaign, key=lambda x: get_val(x, 'spend'), reverse=True)
-              for c in sorted_wc:
-                  spend = get_val(c, 'spend')
-                  revenue = get_revenue(c)
-                  roas = revenue / spend if spend > 0 else 0
-                  purchases = get_purchases(c)
-                  lines.append(f"• {c.get('campaign_name', 'N/A')}: 지출 {fmt_krw(spend)} | ROAS {roas:.2f} | 구매 {purchases:.0f}건")
-
-          # ===== 6. 월간 성과 (매월 1일만) =====
+          # 섹션 6: 월간 (1일만)
           if is_first_day:
+              s6 = []
               monthly_raw = get_insights(last_month_start, last_month_end)
               monthly_campaign = get_insights(last_month_start, last_month_end, level='campaign', fields='campaign_name,spend,impressions,clicks,actions,action_values')
               monthly_s = summarize(monthly_raw)
-              lines.append(f"\n📆 [월간 성과] {last_month_start} ~ {last_month_end}")
-              lines.append("-" * 40)
+              s6.append(f"📆 [월간] {last_month_start}~{last_month_end}")
+              s6.append("-" * 30)
               if monthly_s:
-                  lines.append(f"총 지출:  {fmt_krw(monthly_s['spend'])}")
-                  lines.append(f"총 매출:  {fmt_krw(monthly_s['revenue'])}")
-                  lines.append(f"평균 ROAS: {monthly_s['roas']:.2f}")
-                  lines.append(f"총 구매:  {monthly_s['purchases']:.0f}건")
-                  lines.append(f"총 노출:  {monthly_s['impressions']:,.0f}")
-                  lines.append(f"평균 CTR: {monthly_s['ctr']:.2f}%")
-                  lines.append(f"평균 CPC: {fmt_krw(monthly_s['cpc'])}")
-                  lines.append(f"일평균 지출: {fmt_krw(monthly_s['spend']/30)}")
+                  s6.append(f"총 지출: {fmt(monthly_s['spend'])}")
+                  s6.append(f"총 매출: {fmt(monthly_s['revenue'])}")
+                  s6.append(f"평균 ROAS: {monthly_s['roas']:.2f}")
+                  s6.append(f"총 구매: {monthly_s['purchases']:.0f}건")
+                  s6.append(f"평균 CTR: {monthly_s['ctr']:.2f}%")
+                  s6.append(f"평균 CPC: {fmt(monthly_s['cpc'])}")
                   if monthly_campaign:
-                      lines.append("\n월간 캠페인별 성과")
-                      sorted_mc = sorted(monthly_campaign, key=lambda x: get_val(x, 'spend'), reverse=True)
-                      for c in sorted_mc:
-                          spend = get_val(c, 'spend')
+                      s6.append("")
+                      s6.append("월간 캠페인별 성과")
+                      for c in sorted(monthly_campaign, key=lambda x: get_val(x,'spend'), reverse=True):
+                          spend = get_val(c,'spend')
                           revenue = get_revenue(c)
-                          roas = revenue / spend if spend > 0 else 0
-                          purchases = get_purchases(c)
-                          lines.append(f"• {c.get('campaign_name', 'N/A')}: 지출 {fmt_krw(spend)} | ROAS {roas:.2f} | 구매 {purchases:.0f}건")
+                          roas = revenue/spend if spend > 0 else 0
+                          s6.append(f"• {c.get('campaign_name','N/A')}: {fmt(spend)} | ROAS {roas:.2f} | 구매 {get_purchases(c):.0f}건")
+              sections.append("\n".join(s6))
 
-          # ===== 7. 통합 인사이트 =====
-          lines.append("\n💡 [통합 인사이트 & 액션 플랜]")
-          lines.append("-" * 40)
-          insights = []
-
+          # 섹션 7: 통합 인사이트
+          s7 = []
+          s7.append("💡 [통합 인사이트 & 액션 플랜]")
+          s7.append("-" * 30)
           if today_s and week_s:
-              # ROAS 분석
-              daily_roas = today_s.get('roas', 0)
-              weekly_roas = week_s.get('roas', 0)
+              daily_roas = today_s.get('roas',0)
+              weekly_roas = week_s.get('roas',0)
+              daily_ctr = today_s.get('ctr',0)
+              weekly_ctr = week_s.get('ctr',0)
+              daily_cpc = today_s.get('cpc',0)
+              weekly_cpc = week_s.get('cpc',0)
+
+              if daily_roas >= 3:
+                  s7.append(f"✅ ROAS {daily_roas:.2f} 달성 → 예산 확대 검토 가능")
+              elif daily_roas >= 2:
+                  s7.append(f"✅ ROAS {daily_roas:.2f} 양호 → 현재 운영 유지")
+              elif daily_roas >= 1:
+                  s7.append(f"⚠️ ROAS {daily_roas:.2f} 낮음 → 성과 낮은 캠페인 점검 필요")
+              else:
+                  s7.append(f"🔴 ROAS {daily_roas:.2f} 위험 → 즉시 운영 전반 점검 필요")
+
               if daily_roas > weekly_roas * 1.1:
-                  insights.append(f"✅ 오늘 ROAS({daily_roas:.2f})가 주간 평균({weekly_roas:.2f})보다 높음 → 현재 운영 방식 유지 권장")
+                  s7.append(f"✅ 오늘 ROAS가 주간 평균보다 높음 → 현재 방식 유지 권장")
               elif daily_roas < weekly_roas * 0.9:
-                  insights.append(f"⚠️ 오늘 ROAS({daily_roas:.2f})가 주간 평균({weekly_roas:.2f})보다 낮음 → 오늘 성과 부진 원인 점검 필요")
+                  s7.append(f"⚠️ 오늘 ROAS가 주간 평균보다 낮음 → 원인 점검 필요")
 
-              # CTR 분석
-              daily_ctr = today_s.get('ctr', 0)
-              weekly_ctr = week_s.get('ctr', 0)
               if daily_ctr < weekly_ctr * 0.8:
-                  insights.append(f"⚠️ 오늘 CTR({daily_ctr:.2f}%)이 주간 평균({weekly_ctr:.2f}%)보다 20% 이상 낮음 → 광고 소재 피로도 확인 필요")
-
-              # CPC 분석
-              daily_cpc = today_s.get('cpc', 0)
-              weekly_cpc = week_s.get('cpc', 0)
+                  s7.append(f"⚠️ CTR 주간 평균 대비 20% 이상 하락 → 소재 피로도 점검")
               if daily_cpc > weekly_cpc * 1.2:
-                  insights.append(f"⚠️ 오늘 CPC({fmt_krw(daily_cpc)})가 주간 평균({fmt_krw(weekly_cpc)})보다 20% 이상 높음 → 경쟁 강도 상승 또는 타겟 소진 가능성")
+                  s7.append(f"⚠️ CPC 주간 평균 대비 20% 이상 상승 → 경쟁 강도 확인")
 
-              # 지출 vs 매출 효율
-              if today_s['revenue'] > 0 and today_s['roas'] >= 3:
-                  insights.append(f"✅ ROAS {today_s['roas']:.2f} 달성 → 예산 확대 검토 가능 시점")
-              elif today_s['roas'] < 1.5:
-                  insights.append(f"🔴 ROAS {today_s['roas']:.2f}로 낮음 → 성과 낮은 캠페인 즉시 점검 필요")
+              if prev_s:
+                  if today_s['purchases'] > prev_s.get('purchases',0) * 1.5:
+                      s7.append(f"✅ 구매 급증 → 성과 좋은 소재/타겟 확대 운영 권장")
+                  elif today_s['purchases'] < prev_s.get('purchases',0) * 0.5:
+                      s7.append(f"⚠️ 구매 급감 → 랜딩페이지 오류 또는 소재 피로도 점검")
 
-              # 구매 트렌드
-              if today_s['purchases'] > 0 and prev_s:
-                  if today_s['purchases'] > prev_s.get('purchases', 0) * 1.5:
-                      insights.append(f"✅ 구매 전환 급증 ({prev_s.get('purchases',0):.0f}건 → {today_s['purchases']:.0f}건) → 성과 좋은 소재/타겟 파악 후 확대 운영 권장")
-                  elif today_s['purchases'] < prev_s.get('purchases', 0) * 0.5:
-                      insights.append(f"⚠️ 구매 전환 급감 ({prev_s.get('purchases',0):.0f}건 → {today_s['purchases']:.0f}건) → 랜딩페이지 오류 또는 소재 피로도 점검 필요")
+          s7.append("")
+          s7.append("📌 오늘의 액션 체크리스트")
+          s7.append("□ 성과 낮은 광고세트 예산 조정")
+          s7.append("□ CTR 낮은 소재 교체 검토")
+          s7.append("□ ROAS 상위 캠페인 예산 확대 검토")
+          s7.append("□ 전환율 낮은 랜딩페이지 점검")
+          sections.append("\n".join(s7))
 
-          if not insights:
-              insights.append("• 데이터 축적 중, 지속 모니터링 필요")
-
-          lines.extend(insights)
-
-          lines.append("\n━" * 25)
-          lines.append("📌 액션 체크리스트")
-          lines.append("□ 성과 낮은 광고세트 예산 조정")
-          lines.append("□ CTR 낮은 소재 교체 검토")
-          lines.append("□ ROAS 상위 캠페인 예산 확대 검토")
-          lines.append("□ 전환율 낮은 랜딩페이지 점검")
-
-          content = "\n".join(lines)
-
+          # 노션 전송
           notion_url = "https://api.notion.com/v1/pages"
           headers = {
               'Authorization': 'Bearer ' + notion_token,
               'Content-Type': 'application/json',
               'Notion-Version': '2022-06-28'
           }
+
+          children_blocks = []
+          for section in sections:
+              children_blocks.append({
+                  'object': 'block',
+                  'type': 'paragraph',
+                  'paragraph': {
+                      'rich_text': [{'type': 'text', 'text': {'content': section}}]
+                  }
+              })
+
           payload = {
               'parent': {'page_id': notion_page_id},
               'properties': {
@@ -321,15 +312,7 @@ jobs:
                       'title': [{'text': {'content': 'Meta 리포트 ' + yesterday}}]
                   }
               },
-              'children': [
-                  {
-                      'object': 'block',
-                      'type': 'paragraph',
-                      'paragraph': {
-                          'rich_text': [{'type': 'text', 'text': {'content': content}}]
-                      }
-                  }
-              ]
+              'children': children_blocks
           }
           r2 = requests.post(notion_url, headers=headers, json=payload)
           print(r2.status_code)
