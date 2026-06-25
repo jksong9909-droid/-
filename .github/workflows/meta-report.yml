@@ -37,6 +37,8 @@ jobs:
               'level': 'account'
           }
           r = requests.get(url, params=params)
+          print("Meta API status:", r.status_code)
+          print("Meta API response:", r.json())
           data = r.json()
 
           if 'data' in data and len(data['data']) > 0:
